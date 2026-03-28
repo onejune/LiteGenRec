@@ -1,0 +1,46 @@
+# LiteGenRec 基础配置模板
+
+# 实验信息
+name: "experiment_name"
+version: "v1"
+
+# 路径配置
+paths:
+  data_dir: "/mnt/workspace/walter.wan/open_research/LiteGenRec/data"
+  output_dir: "/mnt/workspace/walter.wan/open_research/LiteGenRec/outputs"
+  checkpoint_dir: "/mnt/workspace/walter.wan/open_research/LiteGenRec/checkpoints"
+  log_dir: "/mnt/workspace/walter.wan/open_research/LiteGenRec/logs"
+
+# 模型配置
+model:
+  type: "lite_llm"  # lite_llm, sid_encoder, etc.
+  hidden_size: 768
+  num_layers: 8
+  num_heads: 8
+  vocab_size: 32000
+  max_seq_len: 512
+
+# 数据配置
+data:
+  train_file: ""
+  valid_file: ""
+  test_file: ""
+  batch_size: 32
+  max_seq_len: 512
+  num_workers: 4
+
+# 训练配置
+training:
+  epochs: 10
+  learning_rate: 1e-4
+  weight_decay: 0.01
+  warmup_steps: 1000
+  gradient_accumulation_steps: 1
+  fp16: true
+  seed: 42
+
+# 评估配置
+evaluation:
+  metrics: ["auc", "pcoc"]
+  eval_steps: 500
+  save_steps: 1000

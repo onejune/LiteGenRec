@@ -14,17 +14,31 @@
 
 ```
 LiteGenRec/
-├── README.md           # 项目说明
-├── docs/               # 文档、论文笔记、技术调研
-│   └── research_plan.md
-├── experiments/        # 实验设计与报告
-├── configs/            # 配置文件
-├── src/                # 源代码
-│   ├── models/         # 模型实现
-│   ├── data/           # 数据处理
-│   └── utils/          # 工具函数
-├── scripts/            # 训练/评估脚本
-└── notebooks/          # 探索性分析
+├── README.md                    # 项目说明
+├── docs/                        # 文档
+│   ├── research_plan.md         # 研究计划
+│   └── papers/                  # 论文笔记
+│
+├── src/                         # 公共代码库
+│   ├── models/                  # 模型定义
+│   ├── data/                    # 数据处理
+│   ├── trainers/                # 训练器
+│   ├── evaluation/              # 评估指标
+│   └── utils/                   # 工具函数
+│
+├── experiments/                 # 实验目录 (按子方向组织)
+│   ├── README.md                # 实验索引
+│   ├── exp01_sid_construction/  # SID 构建实验
+│   └── exp02_generative_ctr/    # 生成式 CTR 实验
+│
+├── configs/                     # 全局配置模板
+│   └── base.yaml
+│
+├── scripts/                     # 通用脚本
+│   ├── train.py                 # 统一训练入口
+│   └── evaluate.py              # 统一评估入口
+│
+└── notebooks/                   # 探索分析
 ```
 
 ## 🔧 开发环境
@@ -33,7 +47,6 @@ LiteGenRec/
 |------|------|
 | `/mnt/workspace/walter.wan/git_project/github_onejune/LiteGenRec/` | Git 仓库 (代码/文档) |
 | `/mnt/workspace/walter.wan/open_research/LiteGenRec/` | 工作目录 (运行/数据) |
-| `工作目录/reference/` | 参考开源项目 |
 
 ### 工作目录结构
 
@@ -54,33 +67,38 @@ LiteGenRec/
 
 | 项目 | 简介 | 核心技术 |
 |------|------|----------|
-| [MiniMind](https://github.com/jingyaogong/minimind) | 轻量级 LLM 从零实现 | Transformer, SFT, DPO |
-| [MiniOneRec](https://github.com/xxx) | 生成式推荐 | SFT + RL (GRPO) |
-| [SemanticID-Gen](https://github.com/xxx) | 语义 ID 生成 | RQ-VAE |
+| [MiniMind](https://github.com/jingyaogong/minimind) | 轻量级 LLM 从零实现 | Transformer, SFT, GRPO |
+| [MiniOneRec](https://github.com/AkaliKong/MiniOneRec) | 生成式推荐框架 | SID + SFT + RL |
+| SemanticID-Gen | 语义 ID 生成 | RQ-VAE |
+
+## 🧪 实验方向
+
+| 序号 | 方向 | 目标 | 状态 | 优先级 |
+|------|------|------|------|--------|
+| 01 | SID Construction | 广告 Semantic ID 构建 | 🔲 | P0 |
+| 02 | Generative CTR | 生成式 CTR 预估 | 🔲 | P0 |
+| 03 | Lightweight LLM | 模型轻量化 (<100M) | 🔲 | P1 |
+| 04 | Multi-Objective | CTR + CVR 多目标 | 🔲 | P2 |
+| 05 | Cold Start | 新广告冷启动 | 🔲 | P2 |
 
 ## 📊 数据集
 
 | 数据集 | 描述 | 状态 |
 |--------|------|------|
-| 公开数据集 | 待定 | 🔲 |
+| 公开数据集 | Amazon Reviews | 🔲 |
 | DSP 广告数据 | 内部数据 | 🔲 |
-
-## 🧪 实验记录
-
-| 日期 | 实验 | 描述 | 指标 | 状态 |
-|------|------|------|------|------|
-| 2026-03-28 | - | 项目初始化 | - | ✅ |
 
 ## 📈 Baseline & 指标
 
 ### 评估指标
 - **推荐指标**: HR@K, NDCG@K, MRR
-- **广告指标**: AUC, PCOC, CTR
+- **广告指标**: AUC, PCOC
 
 ### Baseline
-| 模型 | 类型 | 指标 | 备注 |
-|------|------|------|------|
-| TBD | - | - | - |
+| 模型 | 类型 | AUC | 备注 |
+|------|------|-----|------|
+| DeepFM | DNN | TBD | baseline |
+| DCN | DNN | TBD | baseline |
 
 ## 🚀 快速开始
 
@@ -88,17 +106,19 @@ LiteGenRec/
 # 进入工作目录
 cd /mnt/workspace/walter.wan/open_research/LiteGenRec
 
-# 代码在 repo/ 软链接
-cd repo/src
+# 训练
+python repo/scripts/train.py --config repo/experiments/exp01_xxx/configs/v1.yaml
+
+# 评估
+python repo/scripts/evaluate.py --config repo/experiments/exp01_xxx/configs/v1.yaml --checkpoint checkpoints/xxx.pt
 ```
 
-## 📝 TODO
+## 📝 实验规范
 
-- [ ] 调研 MiniMind 架构
-- [ ] 调研 MiniOneRec 训练流程
-- [ ] 调研 SemanticID-Gen 语义 ID 方案
-- [ ] 设计 DSP 广告数据适配方案
-- [ ] Baseline 实验
+1. **配置驱动**: 用 YAML 管理超参，不硬编码
+2. **README 先行**: 开实验前先写目标，跑完补结论
+3. **结果可追溯**: 每次实验记录 config + metrics + git commit
+4. **代码复用**: 公共逻辑放 `src/`，实验只写差异部分
 
 ## License
 
