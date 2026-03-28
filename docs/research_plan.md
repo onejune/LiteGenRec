@@ -48,6 +48,61 @@
 3. **实时性**: 如何满足广告竞价的延迟要求？
 4. **可解释性**: 生成式推荐的决策如何解释？
 
-## 5. 参考文献
+## 5. 基础开源项目
+
+工作目录已 clone 以下 3 个开源项目作为研究基础：
+
+### 5.1 MiniMind
+- **路径**: `/mnt/workspace/walter.wan/open_research/LiteGenRec/minimind/`
+- **简介**: 轻量级 LLM 从零实现，包含完整的训练、推理流程
+- **核心文件**:
+  - `model/` — 模型定义
+  - `trainer/` — 训练逻辑
+  - `eval_llm.py` — 评估脚本
+- **GitHub**: https://github.com/jingyaogong/minimind
+
+### 5.2 MiniOneRec
+- **路径**: `/mnt/workspace/walter.wan/open_research/LiteGenRec/MiniOneRec/`
+- **简介**: 生成式推荐系统，将推荐建模为序列生成任务
+- **核心文件**:
+  - `minionerec_trainer.py` — 主训练器
+  - `sft.py` / `rl.py` — SFT 和 RL 训练
+  - `sasrec.py` — SASRec 序列推荐模块
+  - `data.py` — 数据处理
+  - `evaluate.py` — 评估脚本
+- **训练流程**: SFT → RL (GRPO)
+
+### 5.3 SemanticID-Gen
+- **路径**: `/mnt/workspace/walter.wan/open_research/LiteGenRec/SemanticID-Gen/`
+- **简介**: 语义 ID 生成，将 item 编码为语义化的离散 ID
+- **核心流程**:
+  1. `step3_text2emb.sh` — 文本转 embedding
+  2. `step4_train_rqvae.sh` — 训练 RQ-VAE
+  3. `step5_generate_sid.sh` — 生成语义 ID
+  4. `step6_text2sid.sh` — 文本直接生成 ID
+- **关键技术**: RQ-VAE (Residual Quantization VAE)
+
+## 6. 研究路线图
+
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│  MiniMind   │     │ MiniOneRec  │     │SemanticID   │
+│ (轻量 LLM)  │     │ (生成式推荐) │     │ (语义 ID)   │
+└──────┬──────┘     └──────┬──────┘     └──────┬──────┘
+       │                   │                   │
+       └───────────────────┼───────────────────┘
+                           ▼
+                 ┌─────────────────┐
+                 │   LiteGenRec    │
+                 │ 轻量生成式推荐  │
+                 └────────┬────────┘
+                          ▼
+                 ┌─────────────────┐
+                 │  DSP 广告场景   │
+                 │   落地实践      │
+                 └─────────────────┘
+```
+
+## 7. 参考文献
 
 待补充...
