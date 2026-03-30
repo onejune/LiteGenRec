@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Exp15 V2: Hierarchical Semantic CTR with Dense+Sparse Features
+Exp14 V3: Mamba4CTR with Interaction Attention
 
-修复版本: 使用完整的39维特征
+在 V2 基础上添加 Interaction Attention 层
 """
 
 import sys
@@ -21,47 +21,56 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using device: {device}")
 
 
-class HierarchicalFeatureEncoder(nn.Module):
-    def __init__(self, embed_dim, num_levels=3, num_clusters=[256, 128, 64]):
+class MambaBlock(nn.Module):
+    def __init__(self, embed_dim, state_dim=16, dropout=0.1):
         super().__init__()
-        self.num_levels = num_levels
+        self.embed_dim = embed_dim
+        self.state_dim = state_dim
         
-        self.encoders = nn.ModuleList()
-        self.codebooks = nn.ModuleList()
+        self.x_proj = nn.Linear(embed_dim, embed_dim * 2)
+        self.A = nn.Parameter(torch.randn(embed_dim, state_dim))
+        self.D = nn.Parameter(torch.ones(embed_dim))
+        self.out_proj = nn.Linear(embed_dim, embed_dim)
+        self.norm = nn.LayerNorm(embed_dim)
+        self.dropout = nn.Dropout(dropout)
         
-        for i, num_c in enumerate(num_clusters[:num_levels]):
-            self.encoders.append(nn.Sequential(
-                nn.Linear(embed_dim, embed_dim),
-                nn.ReLU(),
-                nn.Linear(embed_dim, embed_dim)
-            ))
-            self.codebooks.append(nn.Embedding(num_c, embed_dim))
-        
-        self.fusion = nn.Sequential(
-            nn.Linear(embed_dim * num_levels, embed_dim),
-            nn.ReLU(),
-            nn.Linear(embed_dim, embed_dim)
-        )
+        nn.init.uniform_(self.A, -0.01, 0.01)
     
     def forward(self, x):
-        hierarchy_outputs = []
+        residual = x
+        x = self.norm(x)
         
-        for i in range(self.num_levels):
-            h = self.encoders[i](x)
-            codebook_weights = self.codebooks[i].weight
-            dists = torch.cdist(h, codebook_weights)
-            weights = F.softmax(-dists, dim=-1)
-            quantized = torch.matmul(weights, codebook_weights)
-            hierarchy_outputs.append(quantized)
-            x = h + quantized
+        x_proj = self.x_proj(x)
+        delta, B = x_proj.chunk(2, dim=-1)
+        delta = F.softplus(delta)
         
-        all_levels = torch.cat(hierarchy_outputs, dim=-1)
-        output = self.fusion(all_levels)
+        A_discrete = torch.exp(delta.unsqueeze(-1) * self.A.unsqueeze(0).unsqueeze(0))
+        h = torch.cumsum(x.unsqueeze(-1) * B.unsqueeze(-1), dim=1)
+        h = h * A_discrete
         
-        return output + x
+        out = h.sum(dim=-1) + x * self.D
+        out = self.out_proj(out)
+        out = self.dropout(out)
+        
+        return out + residual
 
 
-class HierarchicalCTRModel(nn.Module):
+class MambaLayer(nn.Module):
+    def __init__(self, embed_dim, state_dim=16, dropout=0.1):
+        super().__init__()
+        self.forward_mamba = MambaBlock(embed_dim, state_dim, dropout)
+        self.backward_mamba = MambaBlock(embed_dim, state_dim, dropout)
+        self.merge = nn.Linear(embed_dim * 2, embed_dim)
+    
+    def forward(self, x):
+        forward_out = self.forward_mamba(x)
+        backward_out = self.backward_mamba(x.flip(dims=[1])).flip(dims=[1])
+        out = torch.cat([forward_out, backward_out], dim=-1)
+        out = self.merge(out)
+        return out
+
+
+class Mamba4CTRV3(nn.Module):
     def __init__(
         self,
         num_dense_features: int,
@@ -69,8 +78,8 @@ class HierarchicalCTRModel(nn.Module):
         vocab_sizes: list,
         embed_dim: int = 64,
         num_heads: int = 8,
-        num_levels: int = 3,
-        num_clusters: list = [256, 128, 64],
+        state_dim: int = 16,
+        num_layers: int = 4,
         dropout: float = 0.1
     ):
         super().__init__()
@@ -86,14 +95,19 @@ class HierarchicalCTRModel(nn.Module):
             for vocab_size in vocab_sizes
         ])
         
-        # 层次化语义编码器
-        self.hierarchical_encoder = HierarchicalFeatureEncoder(
-            embed_dim, num_levels, num_clusters
-        )
+        # Mamba Layers
+        self.mamba_layers = nn.ModuleList([
+            MambaLayer(embed_dim, state_dim, dropout)
+            for _ in range(num_layers)
+        ])
         
-        # 特征交互层
-        self.interaction = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout, batch_first=True)
-        self.norm = nn.LayerNorm(embed_dim)
+        # ⭐ Interaction Attention
+        self.interaction_attention = nn.MultiheadAttention(
+            embed_dim=embed_dim,
+            num_heads=num_heads,
+            dropout=dropout,
+            batch_first=True
+        )
         
         # CLS Token
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
@@ -116,14 +130,11 @@ class HierarchicalCTRModel(nn.Module):
         # 稠密特征嵌入
         dense_emb = self.dense_embed(dense_x).view(batch_size, self.num_dense_features, -1)
         
-        # 稀疏特征嵌入 + 层次化增强
+        # 稀疏特征嵌入
         sparse_embs = []
         for i in range(self.num_sparse_features):
             field_vals = sparse_x[:, i].long().clamp(0, self.sparse_embeddings[i].num_embeddings - 1)
-            emb = self.sparse_embeddings[i](field_vals)
-            enhanced_emb = self.hierarchical_encoder(emb)
-            sparse_embs.append(enhanced_emb)
-        
+            sparse_embs.append(self.sparse_embeddings[i](field_vals))
         sparse_emb = torch.stack(sparse_embs, dim=1)
         
         # 合并
@@ -133,9 +144,13 @@ class HierarchicalCTRModel(nn.Module):
         cls_tokens = self.cls_token.expand(batch_size, -1, -1)
         seq = torch.cat([cls_tokens, seq], dim=1)
         
-        # 特征交互
-        attn_out, _ = self.interaction(seq, seq, seq)
-        seq = self.norm(seq + attn_out)
+        # Mamba Layers (第一次特征交互)
+        for mamba_layer in self.mamba_layers:
+            seq = mamba_layer(seq)
+        
+        # ⭐ Interaction Attention (第二次特征交互)
+        interaction_out, _ = self.interaction_attention(seq, seq, seq)
+        seq = seq + interaction_out
         
         # 预测
         logits = self.mlp(seq[:, 0, :]).squeeze(-1)
@@ -200,8 +215,8 @@ def train_model(model, train_loader, valid_loader, epochs=2, lr=1e-3):
 
 def main():
     print("=" * 60)
-    print("Exp15 V2: Hierarchical Semantic CTR with Dense+Sparse")
-    print("修复版本: 39维特征")
+    print("Exp14 V3: Mamba4CTR with Interaction Attention")
+    print("在 V2 基础上添加 Interaction Attention 层")
     print("=" * 60)
     
     data_dir = "/mnt/data/oss_wanjun/pai_work/open_research/dataset/criteo_standard/criteo-parquet"
@@ -223,14 +238,14 @@ def main():
     train_loader = DataLoader(train_dataset, batch_size=256, shuffle=True, num_workers=4)
     valid_loader = DataLoader(valid_dataset, batch_size=8192, shuffle=False, num_workers=4)
     
-    model = HierarchicalCTRModel(
+    model = Mamba4CTRV3(
         num_dense_features=13,
         num_sparse_features=26,
         vocab_sizes=vocab_sizes,
         embed_dim=64,
         num_heads=8,
-        num_levels=3,
-        num_clusters=[256, 128, 64],
+        state_dim=16,
+        num_layers=4,
         dropout=0.1
     ).to(device)
     
@@ -242,15 +257,16 @@ def main():
     print("\n" + "=" * 60)
     print("实验结果")
     print("=" * 60)
-    print(f"Hierarchical Semantic V2 AUC: {best_auc:.4f}")
+    print(f"Mamba4CTR V3 AUC: {best_auc:.4f}")
+    print(f"Mamba4CTR V2 AUC: 0.7846")
     print(f"V2 基线 (Transformer): 0.7678")
     
-    if best_auc > 0.7678:
-        print(f"✅ 层次化语义 优于 V2 by +{(best_auc - 0.7678) * 100:.2f}bp")
+    if best_auc > 0.7846:
+        print(f"✅ V3 优于 V2 by +{(best_auc - 0.7846) * 100:.2f}bp")
     else:
-        print(f"❌ 层次化语义 低于 V2 by {(best_auc - 0.7678) * 100:.2f}bp")
+        print(f"❌ V3 低于 V2 by {(best_auc - 0.7846) * 100:.2f}bp")
     
-    torch.save(model.state_dict(), 'hierarchical_semantic_v2_model.pth')
+    torch.save(model.state_dict(), 'mamba4ctr_v3_model.pth')
     
     return best_auc
 

@@ -1,0 +1,7 @@
+{
+  "experiment": "exp16_autoregressive_generation",
+  "model": "GPTStyleGenerator",
+  "best_auc": 0.7235172329697228,
+  "params": 46545822,
+  "epochs": 3
+}

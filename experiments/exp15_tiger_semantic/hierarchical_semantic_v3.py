@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Exp15 V2: Hierarchical Semantic CTR with Dense+Sparse Features
+Exp15 V3: Hierarchical Semantic CTR with Interaction Attention
 
-修复版本: 使用完整的39维特征
+在 V2 基础上添加 Interaction Attention 层
 """
 
 import sys
@@ -61,7 +61,7 @@ class HierarchicalFeatureEncoder(nn.Module):
         return output + x
 
 
-class HierarchicalCTRModel(nn.Module):
+class HierarchicalCTRModelV3(nn.Module):
     def __init__(
         self,
         num_dense_features: int,
@@ -91,9 +91,13 @@ class HierarchicalCTRModel(nn.Module):
             embed_dim, num_levels, num_clusters
         )
         
-        # 特征交互层
-        self.interaction = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout, batch_first=True)
-        self.norm = nn.LayerNorm(embed_dim)
+        # 第一层特征交互 (原版)
+        self.interaction1 = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout, batch_first=True)
+        self.norm1 = nn.LayerNorm(embed_dim)
+        
+        # ⭐ 第二层 Interaction Attention
+        self.interaction2 = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout, batch_first=True)
+        self.norm2 = nn.LayerNorm(embed_dim)
         
         # CLS Token
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
@@ -133,9 +137,13 @@ class HierarchicalCTRModel(nn.Module):
         cls_tokens = self.cls_token.expand(batch_size, -1, -1)
         seq = torch.cat([cls_tokens, seq], dim=1)
         
-        # 特征交互
-        attn_out, _ = self.interaction(seq, seq, seq)
-        seq = self.norm(seq + attn_out)
+        # 第一层特征交互
+        attn_out1, _ = self.interaction1(seq, seq, seq)
+        seq = self.norm1(seq + attn_out1)
+        
+        # ⭐ 第二层 Interaction Attention
+        attn_out2, _ = self.interaction2(seq, seq, seq)
+        seq = self.norm2(seq + attn_out2)
         
         # 预测
         logits = self.mlp(seq[:, 0, :]).squeeze(-1)
@@ -200,8 +208,8 @@ def train_model(model, train_loader, valid_loader, epochs=2, lr=1e-3):
 
 def main():
     print("=" * 60)
-    print("Exp15 V2: Hierarchical Semantic CTR with Dense+Sparse")
-    print("修复版本: 39维特征")
+    print("Exp15 V3: Hierarchical Semantic CTR with Interaction Attention")
+    print("在 V2 基础上添加第二层 Interaction Attention")
     print("=" * 60)
     
     data_dir = "/mnt/data/oss_wanjun/pai_work/open_research/dataset/criteo_standard/criteo-parquet"
@@ -223,7 +231,7 @@ def main():
     train_loader = DataLoader(train_dataset, batch_size=256, shuffle=True, num_workers=4)
     valid_loader = DataLoader(valid_dataset, batch_size=8192, shuffle=False, num_workers=4)
     
-    model = HierarchicalCTRModel(
+    model = HierarchicalCTRModelV3(
         num_dense_features=13,
         num_sparse_features=26,
         vocab_sizes=vocab_sizes,
@@ -242,15 +250,16 @@ def main():
     print("\n" + "=" * 60)
     print("实验结果")
     print("=" * 60)
-    print(f"Hierarchical Semantic V2 AUC: {best_auc:.4f}")
+    print(f"Hierarchical Semantic V3 AUC: {best_auc:.4f}")
+    print(f"Hierarchical Semantic V2 AUC: 0.7841")
     print(f"V2 基线 (Transformer): 0.7678")
     
-    if best_auc > 0.7678:
-        print(f"✅ 层次化语义 优于 V2 by +{(best_auc - 0.7678) * 100:.2f}bp")
+    if best_auc > 0.7841:
+        print(f"✅ V3 优于 V2 by +{(best_auc - 0.7841) * 100:.2f}bp")
     else:
-        print(f"❌ 层次化语义 低于 V2 by {(best_auc - 0.7678) * 100:.2f}bp")
+        print(f"❌ V3 低于 V2 by {(best_auc - 0.7841) * 100:.2f}bp")
     
-    torch.save(model.state_dict(), 'hierarchical_semantic_v2_model.pth')
+    torch.save(model.state_dict(), 'hierarchical_semantic_v3_model.pth')
     
     return best_auc
 

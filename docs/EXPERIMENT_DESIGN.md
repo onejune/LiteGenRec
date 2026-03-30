@@ -1,6 +1,7 @@
 # LiteGenRec 后续实验设计方案
 
 > 调研时间: 2026-03-30
+> 最后更新: 2026-03-30 19:14
 > 基于: 消融实验结果 + 最新研究进展
 
 ## 一、当前最佳结果
@@ -9,8 +10,14 @@
 |------|-----|----------|
 | DeepFM 基线 | 0.7472 | 传统 CTR 模型 |
 | SimpleGenCTR V1 | 0.7663 | FFN 序列建模 |
-| **FullTransformer V2** | **0.7678** | 自注意力 (最佳) |
-| V3 预期 | 0.769+ | 移除位置编码 |
+| FullTransformer V2 | 0.7678 | Transformer + Interaction Attention |
+| **Mamba4CTR V2** | **0.7846** | State Space Model + Dense Features 🥇 |
+| **HSTU-Lite V2** | **0.7845** | Pointwise Attention + Dense Features 🥈 |
+| **Hierarchical Semantic V2** | **0.7841** | VQ-VAE + Attention + Dense Features 🥉 |
+
+**关键发现**:
+- 稠密特征贡献约 3bp AUC
+- 三种新架构都超越了 Transformer 基线
 
 ## 二、新架构调研总结
 
@@ -89,123 +96,84 @@
 
 ---
 
-### Exp12: HSTU-Lite for CTR
+### Exp12: HSTU-Lite for CTR ✅ 已完成
 
-**目标**: 实现 HSTU 的轻量化版本，应用于 CTR 预测
+**结果**: AUC **0.7845** (+1.67bp vs V2 Transformer)
 
 **架构**:
 ```
-Input: 26个类别特征
+Input: 39个特征 (13稠密 + 26稀疏)
   ↓
 Embedding Layer (独立嵌入表)
   ↓
-HSTU Block:
+HSTU Block (4层):
   - Pointwise Aggregated Attention
-  - Simplified MLP (2层)
+  - MLP with GELU
   ↓
 CLS Token Pooling
   ↓
 Prediction
 ```
 
-**关键组件**:
-1. Pointwise Aggregated Attention (替代 softmax)
-2. 高效稀疏实现 (可选)
-3. 无位置编码
-
-**预期收益**:
-- 训练速度提升 2-3x
-- AUC 可能持平或略优
+**V3 版本**: 添加 Interaction Attention 层，运行中...
 
 ---
 
-### Exp13: Mamba4CTR
+### Exp13: Mamba4CTR ✅ 已完成
 
-**目标**: 将 Mamba 应用于 CTR 预测
+**结果**: AUC **0.7846** (+1.68bp vs V2 Transformer) 🥇 最佳
 
 **架构**:
 ```
-Input: 26个类别特征
+Input: 39个特征
   ↓
 Embedding Layer
   ↓
-Mamba Block:
-  - Selective State Space Model
+Mamba Block (4层):
+  - Bidirectional State Space Model
   - Linear Time Complexity
   ↓
-Pool + MLP
+CLS Token Pooling
   ↓
 Prediction
 ```
 
-**关键优势**:
-- 线性复杂度
-- 参数效率高
-- 长序列扩展性好
-
-**预期收益**:
-- 训练/推理速度提升
-- AUC 需验证
+**V3 版本**: 添加 Interaction Attention 层，运行中...
 
 ---
 
-### Exp14: Hybrid Architecture
+### Exp14: Hierarchical Semantic CTR ✅ 已完成
 
-**目标**: 结合 Transformer 和传统 CTR 模型的优势
+**结果**: AUC **0.7841** (+1.63bp vs V2 Transformer)
 
 **架构**:
 ```
-Input: 26个类别特征
+Input: 39个特征
   ↓
-┌─────────────────┬─────────────────┐
-│  Transformer    │   Cross Network │
-│  (隐式交互)      │   (显式交互)     │
-└────────┬────────┴────────┬────────┘
-         ↓                 ↓
-         └───── Concat ─────┘
-                 ↓
-            MLP Head
+Embedding Layer + Hierarchical VQ-VAE Encoder
+  ↓
+Multi-head Attention
+  ↓
+CLS Token Pooling
+  ↓
+Prediction
 ```
 
-**关键思想**:
-- Transformer 捕获高阶隐式交互
-- Cross Network 捕获低阶显式交互
-- 互补融合
-
-**预期收益**:
-- AUC 可能 +1-2bp
-- 参数量增加 50%
+**V3 版本**: 添加第二层 Interaction Attention，运行中...
 
 ---
 
-### Exp15: Attention Variants
+## 四、实验进度
 
-**目标**: 对比不同注意力机制
-
-**对比项**:
-| 注意力类型 | 特点 | 复杂度 |
-|-----------|------|--------|
-| Standard Self-Attention | 原始 | O(n²) |
-| Linear Attention | 线性近似 | O(n) |
-| Pointwise Aggregated (HSTU) | 无 softmax | O(n) |
-| FlashAttention | IO 优化 | O(n²) |
-
-**实验设计**:
-- 同样的模型架构
-- 只替换注意力模块
-- 对比 AUC 和训练速度
-
----
-
-## 四、实验优先级
-
-| 优先级 | 实验 | 理由 |
-|--------|------|------|
-| **P0** | Exp11: V3 无位置编码 | 消融已验证，预期明确 |
-| **P1** | Exp12: HSTU-Lite | SOTA 架构，效率提升明显 |
-| **P1** | Exp13: Mamba4CTR | 线性复杂度，扩展性好 |
-| **P2** | Exp14: Hybrid | 架构创新，风险较高 |
-| **P3** | Exp15: Attention Variants | 消融研究，完善理解 |
+| 状态 | 实验 | AUC | 备注 |
+|------|------|-----|------|
+| ✅ 完成 | V3 无位置编码 (exp12) | 0.7511 | 小配置验证 |
+| ✅ 完成 | HSTU-Lite V2 (exp13) | **0.7845** | +1.67bp |
+| ✅ 完成 | Mamba4CTR V2 (exp14) | **0.7846** | +1.68bp 🥇 |
+| ✅ 完成 | Hierarchical Semantic V2 (exp15) | **0.7841** | +1.63bp |
+| 🔄 进行中 | HSTU-Lite V3 | - | +Interaction Attention |
+| 🔄 进行中 | Mamba4CTR V3 | - | +Interaction Attention |
+| 🔄 进行中 | Hierarchical Semantic V3 | - | +Interaction Attention |
 
 ## 五、后续工作流
 
