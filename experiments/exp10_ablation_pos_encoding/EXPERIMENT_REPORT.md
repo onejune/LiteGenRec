@@ -4,6 +4,37 @@
 
 在 Exp03 (FullTransformer V2) 中使用了可学习的位置编码。但 CTR 特征列是否真的有"位置"语义？本实验通过消融研究验证。
 
+## 数据集说明
+
+### Criteo Display Advertising Challenge
+
+- **来源**: Kaggle Competition (2014)
+- **任务**: 预测用户是否会点击广告
+
+### 本实验使用的数据
+
+| 项目 | 值 |
+|------|-----|
+| **数据集名称** | Criteo Standard |
+| **训练集样本数** | 1,345,295 |
+| **验证集样本数** | 75,071 |
+| **类别特征数** | 26 个 (C1-C26) |
+| **数值特征数** | 13 个 (I1-I13)，本实验未使用 |
+| **标签分布** | 点击率约 25% |
+
+### 数据路径
+
+```
+/mnt/data/oss_wanjun/pai_work/open_research/dataset/criteo_standard/criteo-parquet/
+```
+
+### 数据预处理
+
+与 exp03 保持一致：
+- 类别特征使用 LabelEncoder 编码
+- 缺失值填充为 `__MISSING__`
+- 实验3 中随机打乱特征列顺序
+
 ## 实验设计
 
 | 实验 | 设置 | 目的 |
@@ -14,12 +45,14 @@
 
 ## 实验配置
 
-- **模型**: FullTransformerGenCTR
-- **embed_dim**: 32
-- **num_heads**: 4
-- **num_layers**: 2
-- **epochs**: 3
-- **数据**: Criteo (1.35M train, 75K valid)
+| 参数 | 值 |
+|------|-----|
+| 模型 | FullTransformerGenCTR |
+| embed_dim | 32 |
+| num_heads | 4 |
+| num_layers | 2 |
+| epochs | 3 |
+| batch_size | 2048 |
 
 ## 实验结果
 
