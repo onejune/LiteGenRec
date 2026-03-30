@@ -88,7 +88,7 @@ class HierarchicalCTRModel(nn.Module):
         
         # 层次化语义编码器
         self.hierarchical_encoder = HierarchicalFeatureEncoder(
-            embed_dim, embed_dim, num_levels, num_clusters
+            embed_dim, num_levels, num_clusters
         )
         
         # 特征交互层
