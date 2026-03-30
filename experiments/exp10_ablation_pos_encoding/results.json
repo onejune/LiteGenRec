@@ -1,0 +1,38 @@
+{
+  "experiment_id": "exp10",
+  "experiment_name": "Position Encoding Ablation",
+  "date": "2026-03-30",
+  "status": "completed",
+  "ablation_type": "消融实验",
+  "ablation_target": "位置编码对 CTR 预测的影响",
+  "experiments": [
+    {
+      "name": "有位置编码 (原始)",
+      "auc": 0.7438,
+      "config": {"use_pos_encoding": true, "shuffle_features": false}
+    },
+    {
+      "name": "无位置编码",
+      "auc": 0.7454,
+      "config": {"use_pos_encoding": false, "shuffle_features": false},
+      "improvement_vs_baseline": "+1.6bp"
+    },
+    {
+      "name": "打乱特征顺序",
+      "auc": 0.7388,
+      "config": {"use_pos_encoding": true, "shuffle_features": true},
+      "improvement_vs_baseline": "-5.0bp"
+    }
+  ],
+  "conclusions": [
+    "位置编码在 CTR 场景有害，去掉后 AUC 提升 1.6bp",
+    "CTR 特征列没有顺序语义，位置编码引入噪声",
+    "打乱特征顺序有影响，但这不是位置语义，而是训练数据中的偶然模式"
+  ],
+  "recommendations": [
+    "V3 版本应移除位置编码",
+    "可考虑使用 Field Embedding 替代位置编码",
+    "保持特征顺序一致性"
+  ],
+  "expected_v3_auc": "0.77+ (基于 V2 的 0.7678 + 消融增益)"
+}

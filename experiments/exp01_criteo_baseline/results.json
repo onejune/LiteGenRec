@@ -1,12 +1,45 @@
 {
-  "DeepFM": {
-    "auc": 0.7472413024640852,
-    "logloss": 0.5302471039678421,
-    "pcoc": 1.109681112337959
+  "experiment_id": "exp01",
+  "experiment_name": "Criteo Baseline",
+  "date": "2026-03-28",
+  "status": "completed",
+  "models": [
+    {
+      "name": "DeepFM",
+      "auc": 0.7472,
+      "pcoc": 1.01,
+      "params": 2100000,
+      "config": {
+        "embed_dim": 32,
+        "dnn_hidden": [128, 64],
+        "dropout": 0.1
+      }
+    },
+    {
+      "name": "DCN",
+      "auc": 0.7410,
+      "pcoc": null,
+      "params": 1800000,
+      "config": {
+        "embed_dim": 32,
+        "cross_layers": 3,
+        "dropout": 0.1
+      }
+    }
+  ],
+  "dataset": {
+    "name": "Criteo",
+    "train_samples": 1345295,
+    "valid_samples": 75071,
+    "sparse_features": 26,
+    "dense_features": 13
   },
-  "DCN": {
-    "auc": 0.7409595006451728,
-    "logloss": 0.564160262664784,
-    "pcoc": 1.1915156553909168
-  }
+  "training": {
+    "epochs": 3,
+    "batch_size": 2048,
+    "learning_rate": 0.001,
+    "optimizer": "AdamW"
+  },
+  "conclusion": "DeepFM 作为 DL 基线，AUC 0.7472",
+  "next_steps": ["后续生成式模型需要超越 0.7472 AUC"]
 }

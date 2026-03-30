@@ -1,0 +1,44 @@
+{
+  "experiment_id": "exp02",
+  "experiment_name": "SimpleGenCTR V1",
+  "date": "2026-03-28",
+  "status": "completed",
+  "model": {
+    "name": "SimpleGenCTR",
+    "version": "V1",
+    "auc": 0.7663,
+    "pcoc": 1.02,
+    "params": 2000000,
+    "architecture": "特征嵌入 -> FFN序列 -> Mean Pooling -> 预测"
+  },
+  "config": {
+    "num_sparse_features": 26,
+    "embed_dim": 32,
+    "hidden_dim": 128,
+    "num_layers": 3,
+    "dropout": 0.1
+  },
+  "dataset": {
+    "name": "Criteo",
+    "train_samples": 1345295,
+    "valid_samples": 75071,
+    "sparse_features": 26
+  },
+  "training": {
+    "epochs": 3,
+    "batch_size": 2048,
+    "learning_rate": 0.001,
+    "optimizer": "AdamW"
+  },
+  "comparison": {
+    "baseline_auc": 0.7472,
+    "improvement": 0.0191,
+    "improvement_percent": "1.91%"
+  },
+  "conclusion": "生成式 CTR 建模有效，超越基线 1.91%",
+  "key_findings": [
+    "将特征视为序列，通过 FFN 学习特征交互",
+    "独立嵌入表优于共享嵌入表",
+    "Mean Pooling 作为序列聚合方式"
+  ]
+}
