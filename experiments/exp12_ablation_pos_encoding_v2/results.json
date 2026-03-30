@@ -1,0 +1,20 @@
+{
+  "experiment_id": "exp12",
+  "experiment_name": "Position Encoding Ablation V2",
+  "date": "2026-03-30",
+  "status": "completed",
+  "config": {
+    "embed_dim": 64,
+    "num_heads": 8,
+    "num_layers": 4
+  },
+  "results": {
+    "with_pos_encoding": {"best_auc": 0.7491},
+    "without_pos_encoding": {"best_auc": 0.7511}
+  },
+  "conclusion": "位置编码在CTR场景有害，大配置下也有-0.20bp的影响",
+  "comparison_with_small_config": {
+    "small_config_32_4_2": {"with_pos": 0.7438, "without_pos": 0.7454, "diff": "+1.6bp"},
+    "large_config_64_8_4": {"with_pos": 0.7491, "without_pos": 0.7511, "diff": "+0.20bp"}
+  }
+}
