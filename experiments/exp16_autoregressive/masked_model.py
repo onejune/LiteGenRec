@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Exp16 V2: 简化版自回归生成
+Exp16 V2: 掩码特征预测模型
 
-改进点:
-1. 不使用伪序列，直接用单样本
-2. 每个特征独立预测 (类似多任务学习)
-3. 简化架构，减少复杂度
+类似 BERT Masked Language Modeling:
+- 随机 mask 15% 特征
+- 用其他特征预测 masked 特征
+- 联合训练特征重建 + CTR 预测
 """
 
 import os
@@ -78,11 +78,7 @@ def load_data(data_dir, max_vocab_size=50000):
 
 
 class FeatureMaskedModel(nn.Module):
-    """
-    掩码特征预测模型
-    随机 mask 部分特征，用其他特征预测
-    类似 BERT 的 Masked Language Modeling
-    """
+    """掩码特征预测模型"""
     def __init__(
         self,
         num_dense: int,
@@ -111,8 +107,6 @@ class FeatureMaskedModel(nn.Module):
 
         # Mask token
         self.mask_token = nn.Parameter(torch.zeros(1, embed_dim))
-        nn.init.normal_(self.mask_token, std=0.02)[MASK] token
-        self.mask_token = nn.Parameter(torch.zeros(1, embed_dim))
         nn.init.normal_(self.mask_token, std=0.02)
 
         # 总 token 数
@@ -128,14 +122,13 @@ class FeatureMaskedModel(nn.Module):
         )
         self.encoder = nn.TransformerEncoder(encoder_layer, num_layers)
 
-        # 输出头
-        # 稠密特征: 回归
+        # 输出头: 稠密特征回归
         self.dense_heads = nn.ModuleList([
             nn.Linear(embed_dim, 1)
             for _ in range(num_dense)
         ])
 
-        # 稀疏特征: 分类
+        # 输出头: 稀疏特征分类
         self.sparse_heads = nn.ModuleList([
             nn.Linear(embed_dim, vocab_size)
             for vocab_size in vocab_sizes
@@ -150,12 +143,6 @@ class FeatureMaskedModel(nn.Module):
         )
 
     def forward(self, dense_x, sparse_x, mask=None):
-        """
-        Args:
-            dense_x: [batch, 13]
-            sparse_x: [batch, 26]
-            mask: [batch, 39] bool, True = masked
-        """
         batch_size = dense_x.size(0)
 
         # 稠密特征嵌入
@@ -219,7 +206,7 @@ def train_model(model, train_loader, valid_loader, vocab_sizes, epochs=3):
 
             dense_preds, sparse_logits, ctr_logits = model(dense_x, sparse_x, mask)
 
-            # 计算 loss (只对 masked 位置)
+            # 计算 loss
             loss = 0
 
             # 稠密特征 loss
