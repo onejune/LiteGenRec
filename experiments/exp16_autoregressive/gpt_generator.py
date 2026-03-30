@@ -219,9 +219,15 @@ class GPTStyleGenerator(nn.Module):
         # 展平为序列: [batch, seq_len * 39, 64]
         tokens = tokens.view(batch_size, seq_len * self.total_tokens, self.embed_dim)
 
-        # 添加位置编码
-        tokens = tokens + self.token_pos[:, :self.total_tokens, :]
-        tokens = tokens + self.seq_pos[:, :seq_len, :].unsqueeze(2).expand(-1, -1, self.total_tokens, -1).reshape(1, seq_len * self.total_tokens, self.embed_dim)
+        # 添加位置编码 (广播到整个序列)
+        total_seq_len = seq_len * self.total_tokens
+        # token_pos: [1, 39, 64] -> repeat for each seq position
+        token_pos = self.token_pos.repeat(1, seq_len, 1)  # [1, seq_len*39, 64]
+        # seq_pos: [1, max_seq_len, 64] -> expand for each token
+        seq_pos = self.seq_pos[:, :seq_len, :].unsqueeze(2).repeat(1, 1, self.total_tokens, 1)
+        seq_pos = seq_pos.view(1, total_seq_len, self.embed_dim)
+
+        tokens = tokens + token_pos + seq_pos
 
         # 添加 CLS token
         cls_tokens = self.cls_token.expand(batch_size, -1, -1)
