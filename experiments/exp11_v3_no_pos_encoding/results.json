@@ -1,0 +1,30 @@
+{
+  "experiment_id": "exp11",
+  "experiment_name": "LiteGenRec V3 - No Position Encoding",
+  "date": "2026-03-30",
+  "status": "completed",
+  "issue": "消融实验配置与目标模型不一致",
+  "model": {
+    "name": "LiteGenRecV3",
+    "auc": 0.7509,
+    "params": 110967873,
+    "config": {
+      "embed_dim": 64,
+      "num_heads": 8,
+      "num_layers": 4,
+      "use_pos_encoding": false
+    }
+  },
+  "comparison": {
+    "v2_auc": 0.7678,
+    "v3_auc": 0.7509,
+    "difference": -0.0169
+  },
+  "ablation_mismatch": {
+    "ablation_config": {"embed_dim": 32, "num_heads": 4, "num_layers": 2},
+    "v2_config": {"embed_dim": 64, "num_heads": 8, "num_layers": 4},
+    "issue": "消融实验配置小于V2，结论可能不可推广"
+  },
+  "conclusion": "大配置下位置编码可能有益，需重新做同配置消融实验",
+  "next_steps": ["用V2配置重新做位置编码消融", "确认位置编码的真实影响"]
+}
