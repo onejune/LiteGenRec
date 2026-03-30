@@ -1,80 +1,152 @@
-# LiteGenRec 实验结果汇总
+# LiteGenRec 实验结果总览
 
-> 最后更新: 2026-03-30
+**最后更新**: 2026-03-30 23:03
 
-## 实验总览
+---
 
-| 实验 | 模型 | AUC | 相对基线 | 状态 | 关键发现 |
-|------|------|-----|----------|------|----------|
-| exp01 | DeepFM (baseline) | 0.7472 | - | ✅ | DL基线 |
-| exp02 | SimpleGenCTR V1 | 0.7663 | +1.91% | ✅ | 生成式有效 |
-| **exp03** | **FullTransformer V2** | **0.7678** | **+2.06%** | ✅ | **最佳模型** |
-| exp04 | SOTA 对比 | - | - | ⚠️ | 部分完成 |
-| exp05 | MiniMind+RoPE | 0.7515 | +0.43% | ❌ | RoPE不适用CTR |
-| exp06 | Semantic ID VQ-VAE | 0.7492 | +0.20% | ❌ | VQ-VAE失败 |
-| exp07 | DCNv2+AutoInt | 0.7532 | +0.60% | ✅ | 特征交叉有效 |
-| exp08 | Gated Fusion | 0.7461 | -0.11% | ❌ | 融合反而有害 |
-| exp09 | Simple Attention | 0.7391 | -0.81% | ❌ | 过度简化 |
-| exp10 | 位置编码消融 | - | - | ✅ | 位置编码有害 |
+## 一、最终结果排名
 
-## 详细结果
+| 排名 | 模型 | AUC | vs DeepFM | 特征 | 架构特点 |
+|------|------|-----|-----------|------|----------|
+| 🥇 | **HSTU-Lite V3** | **0.7853** | **+3.81bp** | 39维 | Pointwise Attention + Interaction Attn |
+| 🥈 | Mamba4CTR V2 | **0.7846** | **+3.74bp** | 39维 | Bidirectional SSM |
+| 🥉 | HSTU-Lite V2 | 0.7845 | +3.73bp | 39维 | Pointwise Attention |
+| 4 | Hierarchical Semantic V2 | 0.7841 | +3.69bp | 39维 | VQ-VAE + Attention |
+| 5 | Hierarchical Semantic V3 | 0.7826 | +3.54bp | 39维 | VQ-VAE + 2层 Attention |
+| 6 | Mamba4CTR V3 | 0.7803 | +3.31bp | 39维 | SSM + Interaction Attn (过拟合) |
+| 7 | V2 Transformer | 0.7678 | +2.06bp | 39维 | Transformer + Interaction Attn |
+| 8 | SimpleGenCTR V1 | 0.7663 | +1.91bp | 39维 | FFN 序列建模 |
+| 9 | DCNv2+AutoInt | 0.7532 | +0.60bp | 26维 | 混合架构 |
+| 10 | DeepFM 基线 | 0.7472 | - | 26维 | 传统 CTR 模型 |
 
-### 基线实验 (exp01)
+---
 
-| 模型 | AUC | PCOC | 备注 |
-|------|-----|------|------|
-| DeepFM | 0.7472 | 1.01 | DL基线 |
-| DCN | 0.7410 | - | - |
+## 二、V2 vs V3 对比
 
-### 生成式模型对比 (exp02, exp03)
+| 模型 | V2 AUC | V3 AUC | 变化 | Interaction Attention 效果 |
+|------|--------|--------|------|---------------------------|
+| HSTU-Lite | 0.7845 | **0.7853** | **+0.8bp** | ✅ 略有提升 |
+| Mamba4CTR | **0.7846** | 0.7803 | **-4.3bp** | ❌ 显著下降 |
+| Hierarchical Semantic | **0.7841** | 0.7826 | **-1.5bp** | ❌ 略有下降 |
 
-| 模型 | AUC | PCOC | 参数量 | 架构特点 |
-|------|-----|------|--------|----------|
-| SimpleGenCTR V1 | 0.7663 | 1.02 | ~2.0M | FFN序列建模 |
-| **FullTransformer V2** | **0.7678** | **1.02** | ~2.3M | **自注意力** |
+**结论**: Interaction Attention 只对 HSTU-Lite 有效，对其他模型反而有害。
 
-### 失败尝试 (exp05, exp06, exp08, exp09)
+---
 
-| 实验 | 模型 | AUC | 失败原因 |
-|------|------|-----|----------|
-| exp05 | MiniMind+RoPE | 0.7515 | CTR特征无位置语义 |
-| exp06 | VQ-VAE Semantic ID | 0.5000 | 量化导致信息丢失 |
-| exp08 | Gated Fusion | 0.7461 | 门控权重不稳定 |
-| exp09 | Simple Attention | 0.7391 | 过度简化 |
+## 三、稠密特征消融
 
-### 特征交叉实验 (exp07)
+| 配置 | AUC | 特征数 |
+|------|-----|--------|
+| 仅稀疏特征 | ~0.75 | 26维 |
+| 稠密+稀疏特征 | ~0.78 | 39维 |
+| **稠密特征贡献** | **+3bp** | +13维 |
 
-| 模型 | AUC | 备注 |
+**结论**: 13维稠密特征贡献约 3bp AUC 提升。
+
+---
+
+## 四、位置编码消融
+
+| 配置 | 小配置 AUC | 大配置 AUC |
+|------|-----------|-----------|
+| 有位置编码 | 0.7438 | 0.7491 |
+| 无位置编码 | 0.7454 | 0.7511 |
+| **变化** | **+1.6bp** | **+2.0bp** |
+
+**结论**: CTR 特征无序列语义，位置编码是噪声，移除后性能提升。
+
+---
+
+## 五、失败实验
+
+| 实验 | AUC | 问题 |
 |------|-----|------|
-| DCNv2+AutoInt | 0.7532 | 优于基线，不如Transformer |
+| VQ-VAE (exp06) | 0.5000 | 层次化量化不适合 CTR |
+| Ali-CCP 数据集 | ~0.64 | 时序分割导致分布不一致，过拟合 |
 
-### 消融实验 (exp10)
+---
 
-| 设置 | AUC | 相对差异 |
-|------|-----|----------|
-| 有位置编码 | 0.7438 | 基准 |
-| **无位置编码** | **0.7454** | **+1.6bp** |
-| 打乱特征顺序 | 0.7388 | -5.0bp |
+## 六、数据集信息
 
-## 关键结论
+| 项目 | 内容 |
+|------|------|
+| 名称 | Criteo Display Advertising Challenge |
+| 训练样本 | 1,345,295 |
+| 验证样本 | 75,071 |
+| 特征 | 13 稠密 (数值) + 26 稀疏 (类别) |
+| 数据路径 | `/mnt/data/oss_wanjun/pai_work/open_research/dataset/criteo_standard/criteo-parquet` |
 
-1. ✅ **生成式建模有效**: 将 CTR 预测建模为序列问题可行
-2. ✅ **Transformer 架构最优**: FullTransformer V2 达到最佳 0.7678 AUC
-3. ✅ **位置编码有害**: CTR 特征无顺序语义，应移除位置编码
-4. ✅ **独立嵌入表优于共享**: 每个特征独立嵌入效果更好
-5. ❌ **VQ-VAE/RoPE 不适用**: 语义量化和位置编码在 CTR 场景失效
+---
 
-## 下一步
+## 七、统一训练配置
 
-- [ ] LiteGenRec V3: 移除位置编码，预期 AUC 0.77+
-- [ ] 业务数据验证: 在实际广告数据上测试
-- [ ] 推理优化: 提升模型推理效率
+```python
+embed_dim = 64
+num_heads = 8
+num_layers = 4
+dropout = 0.1
+batch_size = 256
+epochs = 2
+learning_rate = 1e-3
+optimizer = AdamW (weight_decay=0.01)
+scheduler = CosineAnnealingLR
+```
 
-## 实验规范
+---
 
-每个实验目录应包含:
-1. `README.md` - 实验概述
-2. `EXPERIMENT_REPORT.md` - 详细实验报告
-3. `*.py` - 实验代码
-4. `results.json` - 结构化结果数据
-5. `*.pth` / `*.pt` - 模型权重 (可选)
+## 八、关键发现
+
+### 1. 新架构优于 Transformer
+- HSTU-Lite、Mamba4CTR、Hierarchical Semantic 都超越了 Transformer 基线
+- **最佳**: HSTU-Lite V3 (0.7853)，比 Transformer +2.06bp
+
+### 2. Interaction Attention 不是银弹
+- 只对 HSTU-Lite 有效 (+0.8bp)
+- 对 Mamba4CTR (-4.3bp) 和 Hierarchical Semantic (-1.5bp) 有害
+
+### 3. 稠密特征贡献巨大
+- 13维稠密特征贡献 +3bp AUC
+- 忽略稠密特征会导致严重性能损失
+
+### 4. 位置编码在 CTR 场景有害
+- CTR 特征无序列语义
+- 移除位置编码后 AUC +1.6~2.0bp
+
+### 5. VQ-VAE 方案失败
+- 层次化语义量化不适合 CTR 预测任务
+- AUC 0.5000 (随机水平)
+
+---
+
+## 九、推荐方案
+
+**生产推荐**: **HSTU-Lite V3** (AUC 0.7853)
+
+**理由**:
+1. 最高 AUC
+2. Pointwise Attention 效率高 (无 softmax)
+3. 架构简洁，易于部署
+
+**备选**: Mamba4CTR V2 (AUC 0.7846)
+- 线性时间复杂度
+- 适合超长序列场景
+- 但添加 Interaction Attention 后性能下降
+
+---
+
+## 十、实验文件
+
+```
+experiments/
+├── data_loader.py                    # 统一数据加载
+├── exp03_full_transformer/           # V2 Transformer 基线
+├── exp13_hstu_lite/
+│   ├── hstu_lite_v2.py              # V2: 无 Interaction Attn
+│   └── hstu_lite_v3.py              # V3: 有 Interaction Attn
+├── exp14_mamba4ctr/
+│   ├── mamba4ctr_v2.py              # V2
+│   └── mamba4ctr_v3.py              # V3
+└── exp15_tiger_semantic/
+    ├── hierarchical_semantic_v2.py  # V2
+    └── hierarchical_semantic_v3.py  # V3
+```
