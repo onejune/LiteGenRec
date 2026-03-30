@@ -1,0 +1,2 @@
+Semantic ID GenCTR V2 Results
+Best AUC: 0.5000

@@ -1,0 +1,2 @@
+Gated Fusion GenCTR Results
+Best AUC: 0.7461

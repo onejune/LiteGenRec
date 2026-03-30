@@ -1,0 +1,308 @@
+#!/usr/bin/env python3
+"""
+Exp07: Feature Interaction GenCTR
+核心思想: 结合显式特征交叉 + Transformer，参考 AutoInt/DCNv2
+"""
+
+import os
+import numpy as np
+import pandas as pd
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.utils.data import DataLoader, TensorDataset
+from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import roc_auc_score
+import pyarrow.parquet as pq
+import warnings
+warnings.filterwarnings('ignore')
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f"Using device: {device}")
+
+
+class CrossNetwork(nn.Module):
+    """DCNv2 风格的交叉网络"""
+    
+    def __init__(self, input_dim: int, num_layers: int = 3):
+        super().__init__()
+        self.num_layers = num_layers
+        self.cross_weights = nn.ParameterList([
+            nn.Parameter(torch.randn(input_dim, input_dim) * 0.01)
+            for _ in range(num_layers)
+        ])
+        self.cross_biases = nn.ParameterList([
+            nn.Parameter(torch.zeros(input_dim))
+            for _ in range(num_layers)
+        ])
+    
+    def forward(self, x0: torch.Tensor) -> torch.Tensor:
+        """x0: [batch, dim]"""
+        x = x0
+        for i in range(self.num_layers):
+            xw = torch.matmul(x, self.cross_weights[i])
+            x = x0 * (xw + self.cross_biases[i]) + x
+        return x
+
+
+class MultiHeadSelfAttention(nn.Module):
+    """多头自注意力 - AutoInt风格"""
+    
+    def __init__(self, embed_dim: int, num_heads: int = 4, dropout: float = 0.1):
+        super().__init__()
+        self.num_heads = num_heads
+        self.head_dim = embed_dim // num_heads
+        self.scale = self.head_dim ** -0.5
+        
+        self.qkv = nn.Linear(embed_dim, 3 * embed_dim)
+        self.proj = nn.Linear(embed_dim, embed_dim)
+        self.dropout = nn.Dropout(dropout)
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, N, C = x.shape
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim)
+        qkv = qkv.permute(2, 0, 3, 1, 4)
+        q, k, v = qkv[0], qkv[1], qkv[2]
+        
+        attn = (q @ k.transpose(-2, -1)) * self.scale
+        attn = attn.softmax(dim=-1)
+        attn = self.dropout(attn)
+        
+        out = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        out = self.proj(out)
+        return out
+
+
+class FeatureInteractionGenCTR(nn.Module):
+    """特征交互生成式CTR模型"""
+    
+    def __init__(
+        self,
+        num_sparse_features: int,
+        vocab_sizes: list,
+        embed_dim: int = 64,
+        hidden_dim: int = 256,
+        num_cross_layers: int = 3,
+        num_attn_layers: int = 2,
+        num_heads: int = 4,
+        dropout: float = 0.1
+    ):
+        super().__init__()
+        self.num_sparse_features = num_sparse_features
+        self.embed_dim = embed_dim
+        
+        self.embeddings = nn.ModuleList([
+            nn.Embedding(vocab_size + 1, embed_dim, padding_idx=0)
+            for vocab_size in vocab_sizes
+        ])
+        
+        self.field_embedding = nn.Embedding(num_sparse_features, embed_dim)
+        
+        cross_input_dim = num_sparse_features * embed_dim
+        self.cross_network = CrossNetwork(cross_input_dim, num_cross_layers)
+        
+        self.attn_layers = nn.ModuleList([
+            nn.Sequential(
+                MultiHeadSelfAttention(embed_dim, num_heads, dropout),
+                nn.LayerNorm(embed_dim),
+                nn.Dropout(dropout)
+            )
+            for _ in range(num_attn_layers)
+        ])
+        
+        self.deep_network = nn.Sequential(
+            nn.Linear(cross_input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+        )
+        
+        fusion_dim = cross_input_dim + num_sparse_features * embed_dim + hidden_dim // 2
+        self.output = nn.Sequential(
+            nn.Linear(fusion_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, 1)
+        )
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        batch_size = x.size(0)
+        
+        embeds = []
+        for i in range(self.num_sparse_features):
+            field_vals = x[:, i].long().clamp(0, self.embeddings[i].num_embeddings - 1)
+            embeds.append(self.embeddings[i](field_vals))
+        
+        embed_stack = torch.stack(embeds, dim=1)
+        embed_flat = embed_stack.reshape(batch_size, -1)
+        
+        cross_out = self.cross_network(embed_flat)
+        
+        field_ids = torch.arange(self.num_sparse_features, device=x.device)
+        field_embeds = self.field_embedding(field_ids).unsqueeze(0).expand(batch_size, -1, -1)
+        attn_input = embed_stack + field_embeds
+        
+        attn_out = attn_input
+        for attn_layer in self.attn_layers:
+            attn_out = attn_out + attn_layer(attn_out)
+        
+        attn_flat = attn_out.reshape(batch_size, -1)
+        deep_out = self.deep_network(embed_flat)
+        
+        fusion = torch.cat([cross_out, attn_flat, deep_out], dim=-1)
+        logits = self.output(fusion).squeeze(-1)
+        
+        return logits
+
+
+def load_criteo_data(data_dir: str):
+    print("Loading Criteo dataset...")
+    
+    train_path = f"{data_dir}/train_train.parquet"
+    valid_path = f"{data_dir}/train_valid.parquet"
+    
+    train_files = sorted([f for f in os.listdir(train_path) if f.endswith('.parquet')])[:2]
+    train_dfs = [pq.read_table(os.path.join(train_path, f)).to_pandas() for f in train_files]
+    train_df = pd.concat(train_dfs, ignore_index=True)
+    
+    valid_files = sorted([f for f in os.listdir(valid_path) if f.endswith('.parquet')])[:1]
+    valid_dfs = [pq.read_table(os.path.join(valid_path, f)).to_pandas() for f in valid_files]
+    valid_df = pd.concat(valid_dfs, ignore_index=True)
+    
+    print(f"Loaded train: {len(train_df)}, valid: {len(valid_df)}")
+    
+    sparse_cols = [f'C{i}' for i in range(1, 27)]
+    all_df = pd.concat([train_df, valid_df], ignore_index=True)
+    
+    vocab_sizes = []
+    for col in sparse_cols:
+        all_df[col] = all_df[col].fillna('__MISSING__')
+        encoder = LabelEncoder()
+        all_df[col] = encoder.fit_transform(all_df[col].astype(str)) + 1
+        vocab_sizes.append(int(all_df[col].max()) + 1)
+    
+    train_df = all_df.iloc[:len(train_df)]
+    valid_df = all_df.iloc[len(train_df):]
+    
+    X_train = train_df[sparse_cols].values
+    X_valid = valid_df[sparse_cols].values
+    y_train = train_df['label'].values
+    y_valid = valid_df['label'].values
+    
+    return X_train, X_valid, y_train, y_valid, vocab_sizes
+
+
+def train_model(model, train_loader, valid_loader, epochs=3, lr=1e-3):
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=0.01)
+    criterion = nn.BCEWithLogitsLoss()
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+    
+    best_auc = 0
+    
+    for epoch in range(epochs):
+        model.train()
+        total_loss = 0
+        num_batches = 0
+        
+        for batch_idx, (x, y) in enumerate(train_loader):
+            x, y = x.to(device), y.to(device).float()
+            
+            optimizer.zero_grad()
+            logits = model(x)
+            loss = criterion(logits, y)
+            
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            optimizer.step()
+            
+            total_loss += loss.item()
+            num_batches += 1
+            
+            if (batch_idx + 1) % 200 == 0:
+                print(f"  Epoch {epoch+1}, Batch {batch_idx+1}, Loss: {loss.item():.4f}")
+        
+        scheduler.step()
+        avg_loss = total_loss / num_batches
+        
+        model.eval()
+        all_preds, all_labels = [], []
+        
+        with torch.no_grad():
+            for x, y in valid_loader:
+                x = x.to(device)
+                logits = model(x)
+                preds = torch.sigmoid(logits).cpu().numpy()
+                all_preds.extend(preds)
+                all_labels.extend(y.numpy())
+        
+        auc = roc_auc_score(all_labels, all_preds)
+        print(f"Epoch {epoch+1}/{epochs}, Loss: {avg_loss:.4f}, Valid AUC: {auc:.4f}")
+        
+        if auc > best_auc:
+            best_auc = auc
+            torch.save(model.state_dict(), 'best_feature_interaction.pt')
+    
+    return best_auc
+
+
+def main():
+    print("=" * 60)
+    print("Exp07: Feature Interaction GenCTR (DCNv2 + AutoInt)")
+    print("=" * 60)
+    
+    data_dir = "/mnt/data/oss_wanjun/pai_work/open_research/dataset/criteo_standard/criteo-parquet"
+    
+    X_train, X_valid, y_train, y_valid, vocab_sizes = load_criteo_data(data_dir)
+    
+    train_dataset = TensorDataset(
+        torch.tensor(X_train, dtype=torch.long),
+        torch.tensor(y_train, dtype=torch.float)
+    )
+    valid_dataset = TensorDataset(
+        torch.tensor(X_valid, dtype=torch.long),
+        torch.tensor(y_valid, dtype=torch.float)
+    )
+    
+    train_loader = DataLoader(train_dataset, batch_size=1024, shuffle=True, num_workers=4)
+    valid_loader = DataLoader(valid_dataset, batch_size=2048, shuffle=False, num_workers=4)
+    
+    model = FeatureInteractionGenCTR(
+        num_sparse_features=26,
+        vocab_sizes=vocab_sizes,
+        embed_dim=64,
+        hidden_dim=256,
+        num_cross_layers=3,
+        num_attn_layers=2,
+        num_heads=4,
+        dropout=0.1
+    ).to(device)
+    
+    print(f"\nModel parameters: {sum(p.numel() for p in model.parameters()):,}")
+    
+    print("\n" + "=" * 60)
+    print("Training...")
+    print("=" * 60)
+    
+    best_auc = train_model(model, train_loader, valid_loader, epochs=3, lr=1e-3)
+    
+    print("\n" + "=" * 60)
+    print(f"Best Valid AUC: {best_auc:.4f}")
+    print("=" * 60)
+    
+    print("\n对比:")
+    print(f"  DeepFM baseline: 0.7472")
+    print(f"  LiteGenRec V1:   0.7663")
+    print(f"  LiteGenRec V2:   0.7678")
+    print(f"  Exp07 (本实验):  {best_auc:.4f}")
+    
+    with open('results.txt', 'w') as f:
+        f.write(f"Feature Interaction GenCTR Results\n")
+        f.write(f"Best AUC: {best_auc:.4f}\n")
+    
+    return best_auc
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,2 @@
+Simple GenCTR V3 Results
+Best AUC: 0.7492
